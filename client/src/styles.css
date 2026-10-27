@@ -487,3 +487,14 @@ legend { padding: 0; font-size: 11px; letter-spacing: .22em; text-transform: upp
 .story__chapter h1, .story__chapter h2 { clip-path: inset(-0.1em -0.1em calc((1 - var(--o, 1)) * 110%) -0.1em); }
 .story__chapter .eyebrow { letter-spacing: calc(.22em + (1 - var(--o, 1)) * .3em); }
 @media (max-width: 900px) { .story__count { display: none; } .story__beam span { left: -50vw; width: 100vw; } }
+
+/* Lenis smooth scroll (home page) */
+html.lenis, html.lenis body { height: auto; }
+.lenis.lenis-smooth { scroll-behavior: auto !important; }
+.lenis.lenis-stopped { overflow: hidden; }
+
+/* The 3D stage's loader: a fine gold line sweeping on the 15° diagonal while the bag prepares. */
+.story__loader { position: absolute; left: 50%; top: 52%; width: min(46vw, 420px); height: 1px; translate: -10% 0; rotate: -15deg; overflow: hidden; background: rgba(240, 212, 154, .12); }
+.story__loader span { position: absolute; inset: 0; width: 40%; background: linear-gradient(90deg, transparent, #f0d49a, transparent); animation: loader 1.6s cubic-bezier(.6, 0, .4, 1) infinite; }
+@keyframes loader { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+@media (max-width: 900px) { .story__loader { left: 25%; top: 38%; width: 60vw; } }

@@ -40,16 +40,28 @@ function normalFromHeight(hc, strength) {
   return nc;
 }
 
+// A tileable field of soft pebbles. Each pebble is one pre-rendered sprite stamped with
+// drawImage (much faster than building a gradient per pebble); pebbles near an edge are
+// stamped again on the far side so the texture tiles without seams.
+let pebbleSprite = null;
 function pebbleHeight(size, cells, seed) {
+  if (!pebbleSprite) {
+    const [sc, sctx] = canvas(64, 64);
+    const g = sctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+    g.addColorStop(0, 'rgba(255,255,255,.9)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+    sctx.fillStyle = g; sctx.fillRect(0, 0, 64, 64);
+    pebbleSprite = sc;
+  }
   const [c, ctx] = canvas(size, size);
   const r = rng(seed);
   ctx.fillStyle = '#000'; ctx.fillRect(0, 0, size, size);
+  const base = size / Math.sqrt(cells) * 0.75;
   for (let i = 0; i < cells; i++) {
-    const x = r() * size, y = r() * size, rad = (0.6 + r() * 0.9) * size / Math.sqrt(cells) * 0.75;
-    for (const [ox, oy] of [[0, 0], [size, 0], [-size, 0], [0, size], [0, -size]]) {
-      const g = ctx.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, rad);
-      g.addColorStop(0, 'rgba(255,255,255,.9)'); g.addColorStop(1, 'rgba(255,255,255,0)');
-      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x + ox, y + oy, rad, 0, Math.PI * 2); ctx.fill();
+    const x = r() * size, y = r() * size, rad = (0.6 + r() * 0.9) * base, d = rad * 2;
+    for (const ox of x < rad ? [0, size] : x > size - rad ? [0, -size] : [0]) {
+      for (const oy of y < rad ? [0, size] : y > size - rad ? [0, -size] : [0]) {
+        ctx.drawImage(pebbleSprite, x + ox - rad, y + oy - rad, d, d);
+      }
     }
   }
   return c;
@@ -79,11 +91,13 @@ function flapFace(poly, bbox, debossAt) {
     ctx.fillStyle = `rgba(${r() < 0.5 ? '90,40,15' : '220,140,80'},${0.006 + r() * 0.01})`;
     ctx.beginPath(); ctx.arc(r() * S, r() * S, 80 + r() * 220, 0, Math.PI * 2); ctx.fill();
   }
-  // a fine hide grain over the colour
-  for (let i = 0; i < 26000; i++) {
-    ctx.fillStyle = `rgba(${r() < 0.5 ? '70,28,8' : '255,200,150'},${0.02 + r() * 0.03})`;
-    ctx.fillRect(r() * S, r() * S, 1 + r() * 2, 1 + r() * 2);
+  // a fine hide grain over the colour, written straight into the pixels (fast)
+  const img = ctx.getImageData(0, 0, S, S), px = img.data;
+  for (let i = 0; i < px.length; i += 4) {
+    const n = (r() - 0.5) * 14;
+    px[i] += n; px[i + 1] += n * 0.7; px[i + 2] += n * 0.45;
   }
+  ctx.putImageData(img, 0, 0);
   bctx.fillStyle = '#808080'; bctx.fillRect(0, 0, S, S);
   // needle holes along the stitch line (the thread itself is real geometry, see flapStitches)
   const inset = 0.09;
@@ -202,7 +216,10 @@ const EXPLODE = {
   feet: { p: [0, -0.9, 0] },
 };
 
-function buildBag() {
+// Hands control back to the browser for a frame, so a long build never freezes the page.
+const breathe = () => new Promise((r) => requestAnimationFrame(() => r()));
+
+async function buildBag() {
   const bag = new THREE.Group();
   const parts = {};
   for (const k of Object.keys(EXPLODE)) { parts[k] = new THREE.Group(); bag.add(parts[k]); }
@@ -215,14 +232,18 @@ function buildBag() {
   const [rc, rctx] = canvas(1024, 1024);
   rctx.filter = 'invert(1) contrast(0.4) brightness(1.25)'; rctx.drawImage(pebble, 0, 0);
   const noirRough = tex(rc, 2);
+  await breathe();
   const noir = new THREE.MeshPhysicalMaterial({ color: NOIR, roughness: 0.9, roughnessMap: noirRough, normalMap: noirNormal, normalScale: new THREE.Vector2(1.1, 1.1), clearcoat: 0.12, clearcoatRoughness: 0.55, sheen: 0.3, sheenColor: new THREE.Color('#2c2b2a'), sheenRoughness: 0.55 });
   // Cognac box calf: a very fine grain under a glaze.
   const fine = tex(normalFromHeight(pebbleHeight(512, 7000, 11), 1.0), 4);
+  await breathe();
   const cognacSide = new THREE.MeshPhysicalMaterial({ color: COGNAC, roughness: 0.4, clearcoat: 0.45, clearcoatRoughness: 0.3, normalMap: fine, normalScale: new THREE.Vector2(0.22, 0.22), sheen: 0.25, sheenColor: new THREE.Color('#ffb27a'), sheenRoughness: 0.4 });
   // Light-gold PVD brass, brushed: anisotropic highlights that streak along the grain.
   const brass = new THREE.MeshPhysicalMaterial({ color: BRASS, metalness: 1, roughness: 0.22, anisotropy: 0.7, anisotropyRotation: 0, clearcoat: 0.3, clearcoatRoughness: 0.15 });
   const thread = new THREE.MeshStandardMaterial({ color: '#efe2c8', roughness: 0.7 });
-  const edge = new THREE.MeshStandardMaterial({ color: '#2a1a12', roughness: 0.5 });
+  // One dark trim for piping, tabs, zip tapes, the top slot and the back welts.
+  const darkTrim = new THREE.MeshStandardMaterial({ color: '#141210', roughness: 0.62 });
+  const edge = darkTrim;
 
   // Body: a softly bevelled trapezoid prism.
   const bodyGeo = new THREE.ExtrudeGeometry(roundedTrapezoid(BEVEL, 0.1), { depth: D - BEVEL * 2, bevelEnabled: true, bevelThickness: BEVEL, bevelSize: BEVEL, bevelSegments: 5, curveSegments: 10 });
@@ -241,9 +262,11 @@ function buildBag() {
   const bbox = { x0: -2.25, x1: 2.25, y0: 0.6, y1: 3.15 };
   flapGeo.attributes.uv.array.forEach((v, i, a) => { a[i] = i % 2 === 0 ? (v - bbox.x0) / (bbox.x1 - bbox.x0) : (v - bbox.y0) / (bbox.y1 - bbox.y0); });
   const face = flapFace(poly, bbox, [-1.69, 2.52]);
+  await breathe();
   face.map.wrapS = face.map.wrapT = face.bump.wrapS = face.bump.wrapT = THREE.ClampToEdgeWrapping;
   const flapMat = new THREE.MeshPhysicalMaterial({ map: face.map, bumpMap: face.bump, bumpScale: 0.6, roughness: 0.5, roughnessMap: face.rough, clearcoat: 0.36, clearcoatRoughness: 0.38, sheen: 0.2, sheenColor: new THREE.Color('#ffb27a'), sheenRoughness: 0.45 });
-  const flapEdge = new THREE.MeshPhysicalMaterial({ color: '#7c3916', roughness: 0.38, clearcoat: 0.5, clearcoatRoughness: 0.3 });
+  // the painted edge shares the cognac leather's feature set, so it reuses the same shader program
+  const flapEdge = new THREE.MeshPhysicalMaterial({ color: '#7c3916', roughness: 0.38, clearcoat: 0.5, clearcoatRoughness: 0.3, normalMap: cognacSide.normalMap, normalScale: new THREE.Vector2(0.22, 0.22), sheen: 0.2, sheenColor: new THREE.Color('#ffb27a'), sheenRoughness: 0.4 });
   const flap = new THREE.Mesh(flapGeo, [flapMat, flapEdge]);
   flap.position.z = zF;
   put('flap', flap);
@@ -264,15 +287,15 @@ function buildBag() {
   topEdge.position.set(0, H + 0.035, D / 2 - topDepth - 0.004); put('flap', topEdge);
 
   // The black top: the 350 mm top zip runs between the two handles (tech pack p.3).
-  const slot = new THREE.Mesh(new THREE.BoxGeometry(3.5, 0.012, 0.07), new THREE.MeshStandardMaterial({ color: '#0b0a09', roughness: 0.9 }));
+  const slot = new THREE.Mesh(new THREE.BoxGeometry(3.5, 0.012, 0.07), darkTrim);
   slot.position.set(0, H + 0.008, -0.02); put('body', slot);
-  const teeth = new THREE.Mesh(new THREE.BoxGeometry(3.44, 0.01, 0.02), new THREE.MeshPhysicalMaterial({ color: '#8a6d3a', metalness: 1, roughness: 0.45 }));
+  const teeth = new THREE.Mesh(new THREE.BoxGeometry(3.44, 0.01, 0.02), brass);
   teeth.position.set(0, H + 0.016, -0.02); put('body', teeth);
   const topPull = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.025, 0.045), brass);
   topPull.position.set(0.66, H + 0.03, -0.02); put('body', topPull);
 
   // 3 mm piping around the front and back panels, and the concealed expansion zip down each side.
-  const piping = new THREE.MeshPhysicalMaterial({ color: '#121110', roughness: 0.45, clearcoat: 0.3 });
+  const piping = darkTrim;
   const outline = roundedTrapezoid(-0.006, 0.17).getPoints(24).map((p) => new THREE.Vector3(p.x, p.y, 0));
   for (const z of [D / 2 - BEVEL * 0.45, -(D / 2 - BEVEL * 0.45)]) {
     const pipe = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(outline, true), 240, 0.018, 8, true), piping);
@@ -280,7 +303,7 @@ function buildBag() {
   }
   const lean = Math.atan((W_BASE - W_TOP) / 2 / H);
   for (const sgn of [-1, 1]) {
-    const gz = new THREE.Mesh(new THREE.BoxGeometry(0.012, H - 0.36, 0.03), new THREE.MeshStandardMaterial({ color: '#0d0c0b', roughness: 0.7 }));
+    const gz = new THREE.Mesh(new THREE.BoxGeometry(0.012, H - 0.36, 0.03), darkTrim);
     gz.position.set(sgn * (halfW(H / 2) + 0.004), H / 2, 0); gz.rotation.z = sgn * lean; put('body', gz);
   }
 
@@ -308,10 +331,10 @@ function buildBag() {
   // Front quick-access pocket: a 340 mm #5 zip about 50 mm above the base, just under the clasp
   // tab, its pull at the right (the 75 mm dimension on p.2 is the flap's low corner).
   const zipY = 0.5;
-  const tape = new THREE.Mesh(new THREE.BoxGeometry(3.42, 0.065, 0.006), new THREE.MeshStandardMaterial({ color: '#16110e', roughness: 0.8 }));
+  const tape = new THREE.Mesh(new THREE.BoxGeometry(3.42, 0.065, 0.006), darkTrim);
   tape.position.set(0, zipY, D / 2 + 0.006); put('zip', tape);
   const TEETH = 112;
-  const teethMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(0.016, 0.03, 0.012), new THREE.MeshPhysicalMaterial({ color: '#b8924e', metalness: 1, roughness: 0.35 }), TEETH);
+  const teethMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(0.016, 0.03, 0.012), brass, TEETH);
   const m4 = new THREE.Matrix4();
   for (let i = 0; i < TEETH; i++) {
     m4.makeTranslation(-1.68 + (3.36 * i) / (TEETH - 1), zipY + (i % 2 ? 0.009 : -0.009), D / 2 + 0.014);
@@ -424,7 +447,7 @@ function goldDust(count) {
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geo.setAttribute('seed', new THREE.BufferAttribute(seed, 1));
   const mat = new THREE.ShaderMaterial({
-    uniforms: { uTime: { value: 0 }, uMap: { value: new THREE.CanvasTexture(c) }, uSize: { value: 0.2 }, uScale: { value: 400 } },
+    uniforms: { uTime: { value: 0 }, uMap: { value: new THREE.CanvasTexture(c) }, uSize: { value: 0.13 }, uScale: { value: 400 } },
     vertexShader: `
       attribute float seed;
       uniform float uTime, uSize, uScale;
@@ -514,11 +537,13 @@ function studioEnvironment() {
   return room;
 }
 
-export function createTaglioScene(canvasEl) {
-  const renderer = new THREE.WebGLRenderer({ canvas: canvasEl, antialias: true, alpha: true, powerPreference: 'high-performance' });
-  // Sharpness adapts: full resolution (up to 2×) while the scroll rests, lighter while it moves.
-  const DPR_HIGH = Math.min(window.devicePixelRatio || 1, 2), DPR_LOW = Math.min(DPR_HIGH, 1.25);
-  renderer.setPixelRatio(DPR_HIGH);
+export async function createTaglioScene(canvasEl) {
+  // The scene (and the mirror's reflection pass) render into an off-screen buffer; a final pass
+  // tone-maps it to the screen. Both passes then share one set of shader programs, which halves
+  // the compile work. The buffer is multisampled, so the canvas itself needs no antialiasing.
+  const renderer = new THREE.WebGLRenderer({ canvas: canvasEl, antialias: false, alpha: true, powerPreference: 'high-performance' });
+  // A fixed resolution (up to 1.5×): changing it mid-scroll would re-allocate the canvas and hitch.
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   // Khronos PBR Neutral: made for product display, it keeps the cognac and the brass true to colour.
   renderer.toneMapping = THREE.NeutralToneMapping;
@@ -528,6 +553,7 @@ export function createTaglioScene(canvasEl) {
   // Shadows are only recomputed when the bag moves (see render), not on every frame.
   renderer.shadowMap.autoUpdate = false;
 
+  await breathe();
   const scene = new THREE.Scene();
   const pmrem = new THREE.PMREMGenerator(renderer);
   scene.environment = pmrem.fromScene(studioEnvironment(), 0.02).texture;
@@ -536,7 +562,7 @@ export function createTaglioScene(canvasEl) {
   // Warm key from high left, a cool rim behind, a low warm fill: a dark studio.
   const key = new THREE.DirectionalLight('#ffe6c4', 2.4);
   key.position.set(-5, 8, 6); key.castShadow = true;
-  key.shadow.mapSize.set(2048, 2048); key.shadow.radius = 4;
+  key.shadow.mapSize.set(1024, 1024); key.shadow.radius = 3;
   key.shadow.bias = -0.0004; key.shadow.normalBias = 0.02;
   Object.assign(key.shadow.camera, { left: -3.4, right: 3.4, top: 4.2, bottom: -2.6, near: 2, far: 22 });
   scene.add(key);
@@ -545,7 +571,8 @@ export function createTaglioScene(canvasEl) {
   const fill = new THREE.DirectionalLight('#ffd7a8', 0.9); fill.position.set(5, 1.5, 7); scene.add(fill);
 
   const stage = new THREE.Group();
-  const { bag, parts, anchors, setExplode } = buildBag();
+  await breathe();
+  const { bag, parts, anchors, setExplode } = await buildBag();
   bag.position.y = -2.0;
   stage.add(bag);
   const narrow = window.matchMedia('(max-width: 900px)').matches;
@@ -554,7 +581,7 @@ export function createTaglioScene(canvasEl) {
   const floorShadow = new THREE.Mesh(new THREE.PlaneGeometry(7.5, 3.2), new THREE.MeshBasicMaterial({ map: shadowTexture(), transparent: true, depthWrite: false }));
   floorShadow.rotation.x = -Math.PI / 2; floorShadow.position.y = -2.036;
   scene.add(floorShadow);
-  const mirrorScale = narrow ? 0.25 : 0.38;
+  const mirrorScale = narrow ? 0.18 : 0.26; // lacquer reflections are soft, so a small buffer is enough
   const mirror = new Reflector(new THREE.PlaneGeometry(16, 16), {
     shader: LacquerShader, color: new THREE.Color('#b89a80'), clipBias: 0.003,
     textureWidth: Math.round(canvasEl.clientWidth * mirrorScale) || 512, textureHeight: Math.round(canvasEl.clientHeight * mirrorScale) || 512,
@@ -562,15 +589,31 @@ export function createTaglioScene(canvasEl) {
   mirror.material.transparent = true; mirror.material.depthWrite = false;
   mirror.rotation.x = -Math.PI / 2; mirror.position.y = -2.042;
   scene.add(mirror);
+  // The reflection pass is the costliest part of a frame, so it refreshes every other frame;
+  // at the mirror's softness the difference cannot be seen, and scrolling stays at full rate.
+  const reflect = mirror.onBeforeRender;
+  let mirrorTick = 0;
+  mirror.onBeforeRender = function (...args) { if (mirrorTick++ % 2 === 0) reflect.apply(this, args); };
   scene.add(stage);
 
   const camera = new THREE.PerspectiveCamera(28, 1, 0.5, 60);
+  const buffer = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
+  const post = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
+    uniforms: { tDiffuse: { value: buffer.texture } },
+    vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+    fragmentShader: 'uniform sampler2D tDiffuse; varying vec2 vUv; void main() { gl_FragColor = texture2D(tDiffuse, vUv); \n#include <tonemapping_fragment>\n#include <colorspace_fragment>\n}',
+    depthTest: false, depthWrite: false, toneMapped: true,
+  }));
+  post.frustumCulled = false;
+  const postScene = new THREE.Scene(); postScene.add(post);
+  const postCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   const target = new THREE.Vector3();
 
   function resize() {
     const { clientWidth: w, clientHeight: h } = canvasEl;
     if (!w || !h) return;
     renderer.setSize(w, h, false);
+    buffer.setSize(Math.round(w * renderer.getPixelRatio()), Math.round(h * renderer.getPixelRatio()));
     camera.aspect = w / h; camera.updateProjectionMatrix();
     mirror.getRenderTarget().setSize(Math.round(w * mirrorScale), Math.round(h * mirrorScale));
     dust.userData.setScale(h * renderer.getPixelRatio() * 0.5); // same attenuation as PointsMaterial
@@ -595,7 +638,10 @@ export function createTaglioScene(canvasEl) {
     target.set(0, pose.ty, 0);
     camera.position.set(pointer.x * 0.9, pose.ty + pose.dist * 0.16 - pointer.y * 0.5, pose.dist);
     camera.lookAt(target);
+    renderer.setRenderTarget(buffer);
     renderer.render(scene, camera);
+    renderer.setRenderTarget(null);
+    renderer.render(postScene, postCamera);
     const { clientWidth: w, clientHeight: h } = canvasEl;
     const toScreen = (vec) => ({ x: (vec.x * 0.5 + 0.5) * w, y: (-vec.y * 0.5 + 0.5) * h });
     const out = anchors.map(([name, local]) => toScreen(v.copy(local).applyMatrix4(parts[name].matrixWorld).project(camera)));
@@ -610,17 +656,25 @@ export function createTaglioScene(canvasEl) {
     });
     pmrem.dispose();
     mirror.dispose();
+    buffer.dispose();
+    post.geometry.dispose(); post.material.dispose();
     renderer.dispose();
   }
 
-  let quality = 'high';
-  function setQuality(q) {
-    if (q === quality) return;
-    quality = q;
-    renderer.setPixelRatio(q === 'high' ? DPR_HIGH : DPR_LOW);
-    resize();
+  // Compile every shader (for the screen and for the mirror's reflection pass) and upload the
+  // textures in the background, so the first frame never freezes the page. Uses the browser's
+  // parallel shader compilation where available.
+  async function warm() {
+    scene.traverse((o) => {
+      for (const m of o.material ? [].concat(o.material) : []) for (const k of Object.keys(m)) if (m[k]?.isTexture) renderer.initTexture(m[k]);
+    });
+    renderer.setRenderTarget(buffer);
+    await renderer.compileAsync(scene, camera);
+    renderer.setRenderTarget(null);
+    await renderer.compileAsync(postScene, postCamera);
   }
 
+  if (import.meta.env.DEV) window.__df = { renderer, scene, mirror, key, dust, camera };
   resize();
-  return { render, resize, dispose, setQuality };
+  return { render, resize, dispose, warm };
 }

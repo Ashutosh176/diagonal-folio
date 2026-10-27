@@ -7,9 +7,11 @@ import Reveal from '../components/Reveal.jsx';
 import { SubscribeForm } from '../components/Footer.jsx';
 import Services from '../components/Services.jsx';
 import BagStory from '../components/BagStory.jsx';
+import useSmoothScroll from '../components/useSmoothScroll.js';
 
 export default function Home() {
   const { getProduct } = useStore();
+  useSmoothScroll();
   const taglio = getProduct('taglio');
   const cadre = getProduct('cadre');
   const orlo = getProduct('orlo');

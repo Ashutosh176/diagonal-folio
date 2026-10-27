@@ -3,6 +3,11 @@ import { Link } from 'react-router-dom';
 import { Media } from './Img.jsx';
 import { formatINR } from '../lib/api.js';
 
+// Start fetching three.js and the scene as soon as this module loads, not when the story mounts.
+let sceneModule = null;
+const loadScene = () => (sceneModule ??= import('../three/taglioScene.js'));
+if (typeof window !== 'undefined') loadScene();
+
 // The home-page opening: a pinned espresso stage with the Taglio in real-time 3D, in drifting
 // gold dust. On arrival the bag assembles itself from its parts. Scrolling turns it through six
 // chapters, including an exploded view with labels that track each part, while a giant outlined
@@ -65,7 +70,6 @@ export default function BagStory({ product }) {
   const chapterRefs = useRef([]);
   const labelRefs = useRef([]);
   const [ready, setReady] = useState(false);
-  const [posterGone, setPosterGone] = useState(false);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
@@ -128,7 +132,7 @@ export default function BagStory({ product }) {
 
     // Easing is time-based, so the glide feels the same at 60, 90 or 120 frames a second.
     // While nothing moves (scroll settled, pointer at rest) the scene drops to ~30 fps for the dust.
-    let last = 0, lastDraw = 0, lastScrollMove = 0;
+    let last = 0, lastDraw = 0;
     const frame = (now) => {
       raf = 0;
       if (!alive) return;
@@ -136,16 +140,13 @@ export default function BagStory({ product }) {
       last = now;
       const tgt = target;
       const prevCur = cur, prevPx = pointer.x, prevPy = pointer.y;
-      cur = cur === null || calm ? tgt : cur + (tgt - cur) * (1 - Math.exp(-dt * 6.5));
+      cur = cur === null || calm ? tgt : cur + (tgt - cur) * (1 - Math.exp(-dt * 11)); // Lenis already glides the page
       if (Math.abs(tgt - cur) < 0.0002) cur = tgt;
       const k = 1 - Math.exp(-dt * 4);
       pointer.x += (aim.x - pointer.x) * k; pointer.y += (aim.y - pointer.y) * k;
       const idle = cur === prevCur && Math.abs(pointer.x - prevPx) < 0.0005 && Math.abs(pointer.y - prevPy) < 0.0005 && !(introAt && now - introAt < 2700);
       if (idle && scene && now - lastDraw < 32) { if (visible && !calm) raf = requestAnimationFrame(frame); return; }
       lastDraw = now;
-      // Full resolution once the scroll rests; lighter while it moves (pointer drift does not count).
-      if (cur !== prevCur) lastScrollMove = now;
-      scene?.setQuality(now - lastScrollMove > 280 ? 'high' : 'low');
       paintLayers(cur);
       if (scene) {
         const pose = poseAt(cur, narrowMq.matches);
@@ -173,10 +174,15 @@ export default function BagStory({ product }) {
     wake();
 
     // Load three.js and build the bag once fonts are ready (the engraving uses the house serif).
-    Promise.all([import('../three/taglioScene.js'), document.fonts?.ready])
-      .then(([mod]) => {
+    // Build the bag once fonts are ready (the engraving uses the house serif), compile it in the
+    // background, and only then start drawing, so the page never freezes.
+    Promise.all([loadScene(), document.fonts?.ready])
+      .then(async ([mod]) => {
         if (!alive) return;
-        scene = mod.createTaglioScene(canvasRef.current);
+        const built = await mod.createTaglioScene(canvasRef.current);
+        await built.warm();
+        if (!alive) { built.dispose(); return; }
+        scene = built;
         measure();
         cur = target = progress();
         introAt = performance.now();
@@ -201,8 +207,11 @@ export default function BagStory({ product }) {
       <div className="story__stage">
         <div ref={beamRef} className="story__beam" aria-hidden="true"><span /></div>
         <div ref={wordRef} className="story__word" aria-hidden="true">TAGLIO</div>
-        {!posterGone && (
-          <div className={`story__poster ${ready ? 'is-hidden' : ''}`} onTransitionEnd={(e) => e.target === e.currentTarget && ready && setPosterGone(true)}>
+        {/* While the 3D prepares, the stage shows a quiet gold loader; the bag then assembles in.
+            The studio photo appears only if WebGL is unavailable. */}
+        {!ready && !failed && <div className="story__loader" aria-hidden="true"><span /></div>}
+        {failed && (
+          <div className="story__poster">
             <Media name="taglio-nc-07-mood" alt="" ratio="" sizes="100vw" priority dark />
           </div>
         )}
