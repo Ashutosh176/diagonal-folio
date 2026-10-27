@@ -10,12 +10,14 @@
   ],
   "scripts": {
     "images": "node scripts/optimize-images.mjs",
+    "textures": "node scripts/bake-textures.mjs",
     "film": "node scripts/make-hero-film.mjs",
     "dev": "concurrently -k -n api,web -c gray,yellow \"npm run dev -w server\" \"npm run dev -w client\"",
     "build": "npm run build -w client",
     "start": "npm run start -w server"
   },
   "devDependencies": {
+    "@napi-rs/canvas": "^0.1.56",
     "concurrently": "^9.1.2",
     "sharp": "^0.33.5"
   }

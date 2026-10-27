@@ -1,5 +1,6 @@
 // A real-time 3D Taglio DF-01, built from the tech pack (W 431 base / 409 top × H 310 × D 110 mm),
-// for the home-page scroll story. Units are decimetres. All textures are drawn on canvases:
+// for the home-page scroll story. Units are decimetres. The textures are baked images (see
+// scripts/bake-textures.mjs):
 // pebbled noir calf, cognac box calf with saddle stitching and a blind-debossed D/F, and a
 // light-gold brass clasp engraved D/F. The scene only renders when something changes.
 // Overlapping parts are kept a few hundredths apart so no two surfaces share a plane (no shimmer).
@@ -8,126 +9,42 @@
 import * as THREE from 'three';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
 
-const W_BASE = 4.31, W_TOP = 4.09, H = 3.1, D = 1.1, BEVEL = 0.07;
-const TAN15 = Math.tan(Math.PI / 12);
-const halfW = (y) => (W_BASE - (W_BASE - W_TOP) * (y / H)) / 2;
-// The flap's lower edge: rises left to right on the 15° line, crossing the centre at FLAP_MID.
-const FLAP_MID = 1.33;
-const flapY = (x) => FLAP_MID + x * TAN15;
+import { W_BASE, W_TOP, H, D, BEVEL, TAN15, halfW, flapY, COGNAC, NOIR, BRASS, FLAP, TEXTURES } from './taglioSpec.js';
 
-const COGNAC = '#9c4a1c', NOIR = '#1d1c1b', BRASS = '#c9a45e';
-const SERIF = "'Cormorant Garamond', 'Times New Roman', serif";
 
 function canvas(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return [c, c.getContext('2d')]; }
 
 // Seeded noise so the leather looks the same on every load.
 function rng(seed) { return () => ((seed = (seed * 16807) % 2147483647) / 2147483647); }
 
-// Height field → tangent-space normal map.
-function normalFromHeight(hc, strength) {
-  const { width: w, height: h } = hc;
-  const src = hc.getContext('2d').getImageData(0, 0, w, h).data;
-  const [nc, nctx] = canvas(w, h);
-  const out = nctx.createImageData(w, h);
-  const at = (x, y) => src[(((y + h) % h) * w + ((x + w) % w)) * 4] / 255;
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    const dx = (at(x + 1, y) - at(x - 1, y)) * strength, dy = (at(x, y + 1) - at(x, y - 1)) * strength;
-    const len = Math.hypot(dx, dy, 1), i = (y * w + x) * 4;
-    out.data[i] = (-dx / len * 0.5 + 0.5) * 255; out.data[i + 1] = (dy / len * 0.5 + 0.5) * 255;
-    out.data[i + 2] = (1 / len * 0.5 + 0.5) * 255; out.data[i + 3] = 255;
-  }
-  nctx.putImageData(out, 0, 0);
-  return nc;
-}
-
-// A tileable field of soft pebbles. Each pebble is one pre-rendered sprite stamped with
-// drawImage (much faster than building a gradient per pebble); pebbles near an edge are
-// stamped again on the far side so the texture tiles without seams.
-let pebbleSprite = null;
-function pebbleHeight(size, cells, seed) {
-  if (!pebbleSprite) {
-    const [sc, sctx] = canvas(64, 64);
-    const g = sctx.createRadialGradient(32, 32, 0, 32, 32, 32);
-    g.addColorStop(0, 'rgba(255,255,255,.9)'); g.addColorStop(1, 'rgba(255,255,255,0)');
-    sctx.fillStyle = g; sctx.fillRect(0, 0, 64, 64);
-    pebbleSprite = sc;
-  }
-  const [c, ctx] = canvas(size, size);
-  const r = rng(seed);
-  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, size, size);
-  const base = size / Math.sqrt(cells) * 0.75;
-  for (let i = 0; i < cells; i++) {
-    const x = r() * size, y = r() * size, rad = (0.6 + r() * 0.9) * base, d = rad * 2;
-    for (const ox of x < rad ? [0, size] : x > size - rad ? [0, -size] : [0]) {
-      for (const oy of y < rad ? [0, size] : y > size - rad ? [0, -size] : [0]) {
-        ctx.drawImage(pebbleSprite, x + ox - rad, y + oy - rad, d, d);
-      }
+// The leather and brass textures are baked at build time (scripts/bake-textures.mjs) and loaded
+// here, so the browser decodes a few small images instead of generating millions of pixels.
+async function loadTextures() {
+  // Decode off the main thread where the browser can (ImageBitmap), pre-flipped to match three's
+  // usual texture orientation; otherwise fall back to ordinary image textures.
+  const load = typeof createImageBitmap === 'function'
+    ? async (url) => {
+      const blob = await (await fetch(url)).blob();
+      const bitmap = await createImageBitmap(blob, { imageOrientation: 'flipY' });
+      const t = new THREE.Texture(bitmap);
+      t.flipY = false;
+      t.needsUpdate = true;
+      return t;
     }
-  }
-  return c;
-}
-
-function tex(c, repeat = 1, srgb = false) {
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.repeat.set(repeat, repeat);
-  t.anisotropy = 16; // clamped by three.js to what the GPU supports
-  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+    : (url) => new THREE.TextureLoader().loadAsync(url);
+  const entries = await Promise.all(Object.entries(TEXTURES).map(async ([k, url]) => [k, await load(url)]));
+  const t = Object.fromEntries(entries);
+  const prep = (tx, repeat, srgb, clamp) => {
+    tx.wrapS = tx.wrapT = clamp ? THREE.ClampToEdgeWrapping : THREE.RepeatWrapping;
+    tx.repeat.set(repeat, repeat);
+    tx.anisotropy = 16; // clamped by three.js to what the GPU supports
+    if (srgb) tx.colorSpace = THREE.SRGBColorSpace;
+    return tx;
+  };
+  prep(t.noirNormal, 2); prep(t.noirRough, 2); prep(t.cognacNormal, 4);
+  prep(t.flapColor, 1, true, true); prep(t.flapBump, 1, false, true); prep(t.flapRough, 1);
+  prep(t.plate, 1, true, true);
   return t;
-}
-
-// Cognac flap face: an even glazed colour with a faint tonal drift, saddle stitching inset from
-// the cut edges, and the blind-debossed D/F (darker, with a matching bump).
-function flapFace(poly, bbox, debossAt) {
-  const S = 2048, sx = S / (bbox.x1 - bbox.x0), sy = S / (bbox.y1 - bbox.y0);
-  const P = ([x, y]) => [(x - bbox.x0) * sx, (bbox.y1 - y) * sy];
-  const [c, ctx] = canvas(S, S), [b, bctx] = canvas(S, S);
-  ctx.fillStyle = COGNAC; ctx.fillRect(0, 0, S, S);
-  const r = rng(7);
-  const sheen = ctx.createLinearGradient(0, 0, 0, S);
-  sheen.addColorStop(0, 'rgba(255,190,130,.10)'); sheen.addColorStop(1, 'rgba(60,25,8,.12)');
-  ctx.fillStyle = sheen; ctx.fillRect(0, 0, S, S);
-  for (let i = 0; i < 160; i++) {
-    ctx.fillStyle = `rgba(${r() < 0.5 ? '90,40,15' : '220,140,80'},${0.006 + r() * 0.01})`;
-    ctx.beginPath(); ctx.arc(r() * S, r() * S, 80 + r() * 220, 0, Math.PI * 2); ctx.fill();
-  }
-  // a fine hide grain over the colour, written straight into the pixels (fast)
-  const img = ctx.getImageData(0, 0, S, S), px = img.data;
-  for (let i = 0; i < px.length; i += 4) {
-    const n = (r() - 0.5) * 14;
-    px[i] += n; px[i + 1] += n * 0.7; px[i + 2] += n * 0.45;
-  }
-  ctx.putImageData(img, 0, 0);
-  bctx.fillStyle = '#808080'; bctx.fillRect(0, 0, S, S);
-  // needle holes along the stitch line (the thread itself is real geometry, see flapStitches)
-  const inset = 0.09;
-  const [tl, tr, br, bl] = poly;
-  const pts = [[tr[0] - inset, tr[1]], [br[0] - inset, br[1] + inset], [bl[0] + inset, bl[1] + inset], [tl[0] + inset, tl[1]]].map(P);
-  for (const [ctx2, colour, w] of [[ctx, 'rgba(60,24,6,.35)', 7], [bctx, '#5a5a5a', 8]]) {
-    ctx2.strokeStyle = colour; ctx2.lineWidth = w; ctx2.setLineDash([22, 14]); ctx2.lineCap = 'round';
-    ctx2.beginPath(); ctx2.moveTo(...pts[0]); for (const p of pts.slice(1)) ctx2.lineTo(...p); ctx2.stroke();
-  }
-  // blind deboss D/F
-  const [dx, dy] = P(debossAt);
-  const fs = 0.26 * sy;
-  for (const [ctx2, colour] of [[ctx, 'rgba(70,30,10,.38)'], [bctx, '#3a3a3a']]) {
-    ctx2.setLineDash([]); ctx2.fillStyle = colour; ctx2.font = `300 ${fs}px ${SERIF}`; ctx2.textBaseline = 'middle';
-    ctx2.fillText('D', dx, dy); const wD = ctx2.measureText('D').width;
-    ctx2.fillText('F', dx + wD + fs * 0.42, dy);
-    ctx2.strokeStyle = colour; ctx2.lineWidth = fs * 0.05;
-    ctx2.beginPath(); ctx2.moveTo(dx + wD + fs * 0.05, dy + fs * 0.42); ctx2.lineTo(dx + wD + fs * 0.36, dy - fs * 0.42); ctx2.stroke();
-  }
-  // the glaze: a soft, uneven sheen (lower roughness where the calf has been burnished)
-  const [g, gctx] = canvas(512, 512);
-  gctx.fillStyle = '#7a7a7a'; gctx.fillRect(0, 0, 512, 512);
-  for (let i = 0; i < 90; i++) {
-    const x = r() * 512, y = r() * 512, rad = 30 + r() * 120;
-    const gr = gctx.createRadialGradient(x, y, 0, x, y, rad);
-    const v = r() < 0.5 ? '40,40,40' : '170,170,170';
-    gr.addColorStop(0, `rgba(${v},.22)`); gr.addColorStop(1, `rgba(${v},0)`);
-    gctx.fillStyle = gr; gctx.fillRect(x - rad, y - rad, rad * 2, rad * 2);
-  }
-  return { map: tex(c, 1, true), bump: tex(b), rough: tex(g) };
 }
 
 // Saddle stitches as real geometry: short cream threads, slightly slanted, along a polyline.
@@ -155,19 +72,6 @@ function stitchesAlong(points, z, threadMat) {
   }
   mesh.castShadow = false;
   return mesh;
-}
-
-function brassPlate() {
-  const [c, ctx] = canvas(1024, 512);
-  ctx.scale(2, 2);
-  const g = ctx.createLinearGradient(0, 0, 512, 256);
-  g.addColorStop(0, '#e6c98d'); g.addColorStop(0.45, BRASS); g.addColorStop(1, '#a8823f');
-  ctx.fillStyle = g; ctx.fillRect(0, 0, 512, 256);
-  ctx.strokeStyle = 'rgba(80,55,20,.75)'; ctx.lineWidth = 6; ctx.strokeRect(34, 34, 444, 188);
-  ctx.fillStyle = 'rgba(70,48,18,.9)'; ctx.font = `400 128px ${SERIF}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText('D', 196, 136); ctx.fillText('F', 326, 136);
-  ctx.strokeStyle = 'rgba(70,48,18,.9)'; ctx.lineWidth = 8; ctx.beginPath(); ctx.moveTo(240, 186); ctx.lineTo(282, 84); ctx.stroke();
-  return tex(c, 1, true);
 }
 
 function shadowTexture() {
@@ -219,7 +123,7 @@ const EXPLODE = {
 // Hands control back to the browser for a frame, so a long build never freezes the page.
 const breathe = () => new Promise((r) => requestAnimationFrame(() => r()));
 
-async function buildBag() {
+async function buildBag(T) {
   const bag = new THREE.Group();
   const parts = {};
   for (const k of Object.keys(EXPLODE)) { parts[k] = new THREE.Group(); bag.add(parts[k]); }
@@ -227,16 +131,10 @@ async function buildBag() {
 
   // Noir pebbled calf: a 1K pebble field; the tops of the pebbles are polished by use, so the
   // roughness map follows the height (high = smoother).
-  const pebble = pebbleHeight(1024, 9000, 3);
-  const noirNormal = tex(normalFromHeight(pebble, 3.6), 2);
-  const [rc, rctx] = canvas(1024, 1024);
-  rctx.filter = 'invert(1) contrast(0.4) brightness(1.25)'; rctx.drawImage(pebble, 0, 0);
-  const noirRough = tex(rc, 2);
-  await breathe();
+  const noirNormal = T.noirNormal, noirRough = T.noirRough;
   const noir = new THREE.MeshPhysicalMaterial({ color: NOIR, roughness: 0.9, roughnessMap: noirRough, normalMap: noirNormal, normalScale: new THREE.Vector2(1.1, 1.1), clearcoat: 0.12, clearcoatRoughness: 0.55, sheen: 0.3, sheenColor: new THREE.Color('#2c2b2a'), sheenRoughness: 0.55 });
   // Cognac box calf: a very fine grain under a glaze.
-  const fine = tex(normalFromHeight(pebbleHeight(512, 7000, 11), 1.0), 4);
-  await breathe();
+  const fine = T.cognacNormal;
   const cognacSide = new THREE.MeshPhysicalMaterial({ color: COGNAC, roughness: 0.4, clearcoat: 0.45, clearcoatRoughness: 0.3, normalMap: fine, normalScale: new THREE.Vector2(0.22, 0.22), sheen: 0.25, sheenColor: new THREE.Color('#ffb27a'), sheenRoughness: 0.4 });
   // Light-gold PVD brass, brushed: anisotropic highlights that streak along the grain.
   const brass = new THREE.MeshPhysicalMaterial({ color: BRASS, metalness: 1, roughness: 0.22, anisotropy: 0.7, anisotropyRotation: 0, clearcoat: 0.3, clearcoatRoughness: 0.15 });
@@ -254,16 +152,13 @@ async function buildBag() {
   // little; it stands clear of the body's face so the two never share a plane.
   const zF = D / 2 + 0.014, inset = 0.005, FT = 0.05, FB = 0.03;
   const yTop = H - 0.06;
-  const xl = -halfW(flapY(-2)) + inset, xr = halfW(flapY(2)) - inset;
-  const poly = [[-halfW(yTop) + inset, yTop], [halfW(yTop) - inset, yTop], [xr, flapY(xr)], [xl, flapY(xl)]];
+  const poly = FLAP.poly; // shared with the texture bake, so the artwork lines up
   // softly rounded lower corners, as on the real flap; the top corners only just eased
   const shape = roundedPoly(poly, [0.05, 0.05, 0.16, 0.16]);
   const flapGeo = new THREE.ExtrudeGeometry(shape, { depth: FT, bevelEnabled: true, bevelThickness: FB, bevelSize: FB, bevelSegments: 5, curveSegments: 8 });
-  const bbox = { x0: -2.25, x1: 2.25, y0: 0.6, y1: 3.15 };
+  const bbox = FLAP.bbox;
   flapGeo.attributes.uv.array.forEach((v, i, a) => { a[i] = i % 2 === 0 ? (v - bbox.x0) / (bbox.x1 - bbox.x0) : (v - bbox.y0) / (bbox.y1 - bbox.y0); });
-  const face = flapFace(poly, bbox, [-1.69, 2.52]);
-  await breathe();
-  face.map.wrapS = face.map.wrapT = face.bump.wrapS = face.bump.wrapT = THREE.ClampToEdgeWrapping;
+  const face = { map: T.flapColor, bump: T.flapBump, rough: T.flapRough };
   const flapMat = new THREE.MeshPhysicalMaterial({ map: face.map, bumpMap: face.bump, bumpScale: 0.6, roughness: 0.5, roughnessMap: face.rough, clearcoat: 0.36, clearcoatRoughness: 0.38, sheen: 0.2, sheenColor: new THREE.Color('#ffb27a'), sheenRoughness: 0.45 });
   // the painted edge shares the cognac leather's feature set, so it reuses the same shader program
   const flapEdge = new THREE.MeshPhysicalMaterial({ color: '#7c3916', roughness: 0.38, clearcoat: 0.5, clearcoatRoughness: 0.3, normalMap: cognacSide.normalMap, normalScale: new THREE.Vector2(0.22, 0.22), sheen: 0.2, sheenColor: new THREE.Color('#ffb27a'), sheenRoughness: 0.4 });
@@ -322,7 +217,7 @@ async function buildBag() {
   // cream topstitch around the tab
   const tabPath = new THREE.CatmullRomCurve3([[-tw + 0.055, tTop - 0.02], [-tw + 0.055, tBot + tw], [0, tBot + 0.055], [tw - 0.055, tBot + tw], [tw - 0.055, tTop - 0.02]].map(([x, y]) => new THREE.Vector3(x, y, 0)));
   clasp.add(stitchesAlong(tabPath.getSpacedPoints(40).map((p) => [p.x, p.y]), 0.046, thread));
-  const plateFace = new THREE.MeshPhysicalMaterial({ map: brassPlate(), metalness: 1, roughness: 0.2, clearcoat: 0.3, clearcoatRoughness: 0.15 });
+  const plateFace = new THREE.MeshPhysicalMaterial({ map: T.plate, metalness: 1, roughness: 0.2, clearcoat: 0.3, clearcoatRoughness: 0.15 });
   const plate = new THREE.Mesh(new THREE.BoxGeometry(0.47, 0.2, 0.045), [brass, brass, brass, brass, plateFace, brass]);
   plate.position.set(0, -0.34, 0.068);
   clasp.add(plate);
@@ -538,6 +433,7 @@ function studioEnvironment() {
 }
 
 export async function createTaglioScene(canvasEl) {
+  const texturesLoading = loadTextures();
   // The scene (and the mirror's reflection pass) render into an off-screen buffer; a final pass
   // tone-maps it to the screen. Both passes then share one set of shader programs, which halves
   // the compile work. The buffer is multisampled, so the canvas itself needs no antialiasing.
@@ -572,7 +468,32 @@ export async function createTaglioScene(canvasEl) {
 
   const stage = new THREE.Group();
   await breathe();
-  const { bag, parts, anchors, setExplode } = await buildBag();
+  const { bag, parts, anchors, setExplode } = await buildBag(await texturesLoading);
+  // Start fast, upgrade quietly. The premium physical materials (glaze, sheen, brushed brass) are
+  // several times slower to compile than standard ones, so the bag first appears with standard
+  // stand-ins that share the same textures; upgrade() compiles the physical set in the background
+  // and swaps it in, without ever drawing an uncompiled material.
+  const lite = new Map();
+  const toLite = (m) => {
+    if (!m.isMeshPhysicalMaterial) return m;
+    if (!lite.has(m)) {
+      lite.set(m, new THREE.MeshStandardMaterial({
+        color: m.color, map: m.map, normalMap: m.normalMap, normalScale: m.normalScale, roughnessMap: m.roughnessMap,
+        bumpMap: m.bumpMap, bumpScale: m.bumpScale, roughness: Math.max(0.2, m.roughness - (m.clearcoat || 0) * 0.25), metalness: m.metalness,
+      }));
+    }
+    return lite.get(m);
+  };
+  const upgradable = [];
+  bag.traverse((o) => {
+    if (!o.isMesh || !o.material) return;
+    const full = o.material;
+    const swapped = Array.isArray(full) ? full.map(toLite) : toLite(full);
+    if (swapped !== full && !(Array.isArray(full) && full.every((m, i) => m === swapped[i]))) {
+      upgradable.push([o, full]);
+      o.material = swapped;
+    }
+  });
   bag.position.y = -2.0;
   stage.add(bag);
   const narrow = window.matchMedia('(max-width: 900px)').matches;
@@ -674,7 +595,30 @@ export async function createTaglioScene(canvasEl) {
     await renderer.compileAsync(postScene, postCamera);
   }
 
+  // Compile the physical materials as if they were in the scene (same lights, environment and
+  // buffer), on stand-in meshes that are never drawn, then swap them onto the bag.
+  async function upgrade() {
+    const holder = new THREE.Scene();
+    const seen = new Set();
+    for (const [mesh, full] of upgradable) {
+      for (const m of [].concat(full)) {
+        const keyId = m.uuid + (mesh.isInstancedMesh ? ':i' : '');
+        if (seen.has(keyId)) continue;
+        seen.add(keyId);
+        holder.add(mesh.isInstancedMesh ? new THREE.InstancedMesh(mesh.geometry, m, 1) : new THREE.Mesh(mesh.geometry, m));
+      }
+    }
+    renderer.setRenderTarget(buffer);
+    await renderer.compileAsync(holder, camera, scene);
+    renderer.setRenderTarget(null);
+    for (const [mesh, full] of upgradable) mesh.material = full;
+    for (const m of lite.values()) m.dispose();
+    lite.clear();
+    holder.clear();
+    renderer.shadowMap.needsUpdate = true;
+  }
+
   if (import.meta.env.DEV) window.__df = { renderer, scene, mirror, key, dust, camera };
   resize();
-  return { render, resize, dispose, warm };
+  return { render, resize, dispose, warm, upgrade };
 }

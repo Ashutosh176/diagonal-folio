@@ -193,11 +193,10 @@ export default function BagStory({ product }) {
     if (!calm && window.matchMedia('(hover: hover) and (pointer: fine)').matches) window.addEventListener('pointermove', onPointer, { passive: true });
     wake();
 
-    // Load three.js and build the bag once fonts are ready (the engraving uses the house serif).
-    // Build the bag once fonts are ready (the engraving uses the house serif), compile it in the
-    // background, and only then start drawing, so the page never freezes.
-    Promise.all([loadScene(), document.fonts?.ready])
-      .then(async ([mod]) => {
+    // Build the bag (its textures are baked images), compile it in the background, and only then
+    // start drawing, so the page never freezes.
+    loadScene()
+      .then(async (mod) => {
         if (!alive) return;
         const built = await mod.createTaglioScene(canvasRef.current);
         await built.warm();
@@ -208,6 +207,8 @@ export default function BagStory({ product }) {
         introAt = performance.now();
         wake();
         requestAnimationFrame(() => alive && setReady(true));
+        // then compile the premium materials in the background and swap them in
+        built.upgrade().catch(() => {});
       })
       .catch(() => alive && setFailed(true));
 
@@ -282,9 +283,9 @@ export default function BagStory({ product }) {
                 <h1 className="display d-xl" style={{ marginTop: 18 }}>The Diagonal<br />Folio</h1>
                 {mode === 'hero' ? (
                   <div className="story__actions">
-                    <button type="button" className="story__go" onClick={() => setMode('story')} disabled={!ready && !failed} aria-label="Go 3D: explore the Taglio in three dimensions">
+                    <button type="button" className="story__go" onClick={() => setMode('story')} aria-label="Go 3D: explore the Taglio in three dimensions">
                       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.1" aria-hidden="true"><path d="M12 2.5 21 7.5v9L12 21.5 3 16.5v-9z" /><path d="M3 7.5 12 12.5l9-5M12 12.5v9" /></svg>
-                      <span>{ready || failed ? 'Go 3D' : 'Preparing 3D'}</span>
+                      <span>Go 3D</span>
                     </button>
                     <button type="button" className="link story__skip" onClick={goToSite}>Discover the collection</button>
                   </div>
