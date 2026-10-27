@@ -90,7 +90,7 @@ export default function Product() {
           ))}
         </div>
 
-        <div className="pdp__info">
+        <div className="pdp__info" data-lenis-prevent>
           <nav aria-label="Breadcrumb" className="eyebrow"><Link to="/bags">Bags</Link> / <Link to={`/bags?type=${product.category}`}>{product.categoryLabel}</Link></nav>
           <h1 className="display" style={{ fontSize: 'clamp(56px, 4.6vw, 76px)', lineHeight: .92, marginTop: 28 }}>{product.name}</h1>
           <div className="display" style={{ fontStyle: 'italic', fontSize: 24, marginTop: 10 }}>{product.title.replace(product.name + ' ', '')} · {product.code}</div>

@@ -149,7 +149,9 @@ export default function BagStory({ product }) {
     let last = 0, lastDraw = 0;
     const frame = (now) => {
       raf = 0;
-      if (!alive) return;
+      // Off screen, the stage costs nothing: no 3D render, no layer updates, no next frame.
+      // The observer below wakes it again when it scrolls back into view.
+      if (!alive || !visible) { last = 0; return; }
       const dt = Math.min(0.05, last ? (now - last) / 1000 : 0.016);
       last = now;
       const tgt = target;
@@ -179,12 +181,12 @@ export default function BagStory({ product }) {
       if (visible && !calm) raf = requestAnimationFrame(frame);
       else if (cur !== tgt) raf = requestAnimationFrame(frame);
     };
-    const wake = () => { target = progress(); if (!raf) raf = requestAnimationFrame(frame); };
+    const wake = () => { target = progress(); if (!raf && visible) raf = requestAnimationFrame(frame); };
     const onResize = () => { measure(); scene?.resize(); wake(); };
     controls.current = { refresh: () => { measure(); wake(); } };
     const onPointer = (e) => { aim.x = (e.clientX / window.innerWidth) * 2 - 1; aim.y = (e.clientY / window.innerHeight) * 2 - 1; };
 
-    const io = new IntersectionObserver(([e]) => { visible = e.isIntersecting; if (visible) wake(); });
+    const io = new IntersectionObserver(([e]) => { visible = e.isIntersecting; if (visible) wake(); }, { rootMargin: '120px 0px' });
     io.observe(section.current);
     const onKey = (e) => { if (e.key === 'Escape' && modeRef.current === 'story') setMode('hero'); };
     window.addEventListener('keydown', onKey);

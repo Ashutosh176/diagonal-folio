@@ -30,21 +30,25 @@ export default function Header({ onMenu, onSearch }) {
   const [scrim, setScrim] = useState(false);
 
   useEffect(() => {
-    let last = window.scrollY;
-    const onScroll = () => {
+    // Scroll events are batched to one update per frame, and React only re-renders the header
+    // when one of its three states actually flips.
+    let last = window.scrollY, raf = 0;
+    const update = () => {
+      raf = 0;
       const y = window.scrollY;
       const dark = document.querySelector('[data-header="dark"]');
       const r = dark?.getBoundingClientRect();
       const over = !!r && r.top < 40 && r.bottom > 84;
       setOverDark(over);
       setScrim(over && y > 40);
-      setHidden(y > 400 && y > last + 4 ? true : y < last - 4 ? false : (v) => v);
+      setHidden((v) => (y > 400 && y > last + 4 ? true : y < last - 4 ? false : v));
       last = y;
     };
-    onScroll();
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(update); };
+    update();
     window.addEventListener('scroll', onScroll, { passive: true });
     window.addEventListener('resize', onScroll);
-    return () => { window.removeEventListener('scroll', onScroll); window.removeEventListener('resize', onScroll); };
+    return () => { cancelAnimationFrame(raf); window.removeEventListener('scroll', onScroll); window.removeEventListener('resize', onScroll); };
   }, [pathname]);
 
   return (

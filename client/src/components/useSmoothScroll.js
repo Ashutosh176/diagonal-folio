@@ -1,8 +1,9 @@
 import { useEffect } from 'react';
 import Lenis from 'lenis';
 
-// Smooth, inertial page scrolling (Lenis) for the home page: mouse-wheel steps become one
-// continuous glide, so the 3D story and the page move together. It pauses while an overlay
+// Smooth, inertial page scrolling (Lenis) across the site: mouse-wheel steps become one
+// continuous glide, so the 3D story and the page move together. Inner panels marked
+// data-lenis-prevent keep their own native scrolling. It pauses while an overlay
 // (menu, search, bag) locks the body, and stays off for visitors who prefer reduced motion.
 // The live instance, so other components can scroll the page smoothly (e.g. Go 3D / Exit 3D).
 let current = null;

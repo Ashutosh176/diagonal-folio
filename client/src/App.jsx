@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Route, Routes, useLocation } from 'react-router-dom';
 import Header from './components/Header.jsx';
+import useSmoothScroll, { smoothScroller } from './components/useSmoothScroll.js';
 import Footer from './components/Footer.jsx';
 import { BagDrawer, Menu, Search } from './components/Overlays.jsx';
 import Home from './pages/Home.jsx';
@@ -28,16 +29,19 @@ function useRouteEffects() {
   const { pathname, hash } = useLocation();
   useEffect(() => {
     if (TITLES[pathname]) document.title = TITLES[pathname];
+    const lenis = smoothScroller();
     if (hash) {
       const el = document.getElementById(hash.slice(1));
-      if (el) return void setTimeout(() => el.scrollIntoView({ behavior: 'smooth' }), 60);
+      if (el) return void setTimeout(() => (lenis ? lenis.scrollTo(el, { offset: -84 }) : el.scrollIntoView({ behavior: 'smooth' })), 60);
     }
-    window.scrollTo({ top: 0, behavior: 'instant' });
+    if (lenis) lenis.scrollTo(0, { immediate: true, force: true });
+    else window.scrollTo({ top: 0, behavior: 'instant' });
   }, [pathname, hash]);
   return pathname;
 }
 
 export default function App() {
+  useSmoothScroll();
   const pathname = useRouteEffects();
   const [panel, setPanel] = useState(null);
   const close = useCallback(() => setPanel(null), []);
