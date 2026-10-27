@@ -1,0 +1,21 @@
+{
+  "name": "diagonal-folio",
+  "private": true,
+  "version": "0.1.0",
+  "description": "The Diagonal Folio (D/F) — luxury leather goods store. React client + Node/Express API.",
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "images": "node scripts/optimize-images.mjs",
+    "film": "node scripts/make-hero-film.mjs",
+    "dev": "concurrently -k -n api,web -c gray,yellow \"npm run dev -w server\" \"npm run dev -w client\"",
+    "build": "npm run build -w client",
+    "start": "npm run start -w server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "sharp": "^0.33.5"
+  }
+}

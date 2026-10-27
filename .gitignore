@@ -1,0 +1,10 @@
+node_modules/
+client/dist/
+server/data/*.json
+.DS_Store
+*.log
+
+# Confidential manufacturing tech packs stay local
+docs/reference/*.pdf
+# Temporary build folder for the hero film
+assets/.hero-build/
