@@ -203,7 +203,7 @@ export default function BagStory({ product }) {
   }, []);
 
   return (
-    <section ref={section} className="story" aria-label="Taglio, in three dimensions">
+    <section ref={section} className="story" data-header="dark" aria-label="Taglio, in three dimensions">
       <div className="story__stage">
         <div ref={beamRef} className="story__beam" aria-hidden="true"><span /></div>
         <div ref={wordRef} className="story__word" aria-hidden="true">TAGLIO</div>

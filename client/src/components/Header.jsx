@@ -21,26 +21,34 @@ export const CloseIcon = () => (
 export default function Header({ onMenu, onSearch }) {
   const { pathname } = useLocation();
   const { count, setBagOpen } = useStore();
-  const [scrollY, setScrollY] = useState(0);
   const [hidden, setHidden] = useState(false);
-  const overlayCapable = pathname === '/';
+  // Over a dark section (marked data-header="dark", e.g. the 3D story) the header stays
+  // transparent with ivory type; once it has scrolled in, a soft dark scrim keeps it legible
+  // when it reappears. Elsewhere it is the solid ivory bar. It hides on the way down past
+  // 400 px and returns on the way up, in both modes.
+  const [overDark, setOverDark] = useState(pathname === '/');
+  const [scrim, setScrim] = useState(false);
 
   useEffect(() => {
     let last = window.scrollY;
     const onScroll = () => {
       const y = window.scrollY;
-      setScrollY(y);
-      setHidden(y > 400 && y > last + 4 ? true : y < last - 4 ? false : (h) => h);
+      const dark = document.querySelector('[data-header="dark"]');
+      const r = dark?.getBoundingClientRect();
+      const over = !!r && r.top < 40 && r.bottom > 84;
+      setOverDark(over);
+      setScrim(over && y > 40);
+      setHidden(y > 400 && y > last + 4 ? true : y < last - 4 ? false : (v) => v);
       last = y;
     };
     onScroll();
     window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
+    window.addEventListener('resize', onScroll);
+    return () => { window.removeEventListener('scroll', onScroll); window.removeEventListener('resize', onScroll); };
   }, [pathname]);
 
-  const overlay = overlayCapable && scrollY < 80;
   return (
-    <header className={`header ${overlay ? 'header--overlay' : ''} ${hidden ? 'header--hidden' : ''}`}>
+    <header className={`header ${overDark ? 'header--overlay' : ''} ${scrim ? 'header--scrim' : ''} ${hidden ? 'header--hidden' : ''}`}>
       <div className="header__row">
         <div className="header__side">
           <button type="button" className="header__btn" onClick={onMenu} aria-haspopup="dialog"><MenuIcon />Menu</button>
