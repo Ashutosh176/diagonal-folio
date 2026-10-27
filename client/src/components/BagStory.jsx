@@ -2,6 +2,15 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Media } from './Img.jsx';
 import { formatINR } from '../lib/api.js';
+import { smoothScroller } from './useSmoothScroll.js';
+
+// Scroll the page smoothly (through Lenis when it is running).
+const scrollPageTo = (y, immediate = false) => {
+  const lenis = smoothScroller();
+  lenis?.resize?.(); // the section height may just have changed
+  if (lenis) lenis.scrollTo(y, immediate ? { immediate: true } : { duration: 1.4 });
+  else window.scrollTo({ top: y, behavior: immediate ? 'instant' : 'smooth' });
+};
 
 // Start fetching three.js and the scene as soon as this module loads, not when the story mounts.
 let sceneModule = null;
@@ -71,6 +80,11 @@ export default function BagStory({ product }) {
   const labelRefs = useRef([]);
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
+  // 'hero': one screen tall; the bag turns slowly on its own and scrolling goes straight on to the
+  // site. 'story': the visitor pressed Go 3D; the section grows and scrolling drives the chapters.
+  const [mode, setMode] = useState('hero');
+  const modeRef = useRef('hero');
+  const controls = useRef(null);
 
   useEffect(() => {
     let scene = null, raf = 0, alive = true, cur = null, target = 0, visible = true, introAt = 0;
@@ -87,7 +101,7 @@ export default function BagStory({ product }) {
       span = Math.max(1, r.height - window.innerHeight);
     };
     measure();
-    const progress = () => Math.min(1, Math.max(0, (window.scrollY - top) / span));
+    const progress = () => (modeRef.current === 'story' ? Math.min(1, Math.max(0, (window.scrollY - top) / span)) : 0);
     const lastO = CHAPTERS.map(() => -1);
     const paintLayers = (p) => {
       CHAPTERS.forEach((c, i) => {
@@ -144,12 +158,15 @@ export default function BagStory({ product }) {
       if (Math.abs(tgt - cur) < 0.0002) cur = tgt;
       const k = 1 - Math.exp(-dt * 4);
       pointer.x += (aim.x - pointer.x) * k; pointer.y += (aim.y - pointer.y) * k;
-      const idle = cur === prevCur && Math.abs(pointer.x - prevPx) < 0.0005 && Math.abs(pointer.y - prevPy) < 0.0005 && !(introAt && now - introAt < 2700);
+      const turning = modeRef.current === 'hero' && !calm;
+      const idle = !turning && cur === prevCur && Math.abs(pointer.x - prevPx) < 0.0005 && Math.abs(pointer.y - prevPy) < 0.0005 && !(introAt && now - introAt < 2700);
       if (idle && scene && now - lastDraw < 32) { if (visible && !calm) raf = requestAnimationFrame(frame); return; }
       lastDraw = now;
       paintLayers(cur);
       if (scene) {
         const pose = poseAt(cur, narrowMq.matches);
+        // In hero mode the bag turns slowly on its own, like a piece on a display stand.
+        if (turning) pose.rotY += Math.sin(now / 1000 * 0.32) * 0.34;
         const scrollExplode = pose.explode;
         // On arrival the parts fly in from apart and lock together.
         if (introAt && !calm) pose.explode = Math.max(pose.explode, 1 - easeOut(Math.min(1, (now - introAt) / 2600)));
@@ -164,10 +181,13 @@ export default function BagStory({ product }) {
     };
     const wake = () => { target = progress(); if (!raf) raf = requestAnimationFrame(frame); };
     const onResize = () => { measure(); scene?.resize(); wake(); };
+    controls.current = { refresh: () => { measure(); wake(); } };
     const onPointer = (e) => { aim.x = (e.clientX / window.innerWidth) * 2 - 1; aim.y = (e.clientY / window.innerHeight) * 2 - 1; };
 
     const io = new IntersectionObserver(([e]) => { visible = e.isIntersecting; if (visible) wake(); });
     io.observe(section.current);
+    const onKey = (e) => { if (e.key === 'Escape' && modeRef.current === 'story') setMode('hero'); };
+    window.addEventListener('keydown', onKey);
     window.addEventListener('scroll', wake, { passive: true });
     window.addEventListener('resize', onResize);
     if (!calm && window.matchMedia('(hover: hover) and (pointer: fine)').matches) window.addEventListener('pointermove', onPointer, { passive: true });
@@ -198,12 +218,28 @@ export default function BagStory({ product }) {
       window.removeEventListener('scroll', wake);
       window.removeEventListener('resize', onResize);
       window.removeEventListener('pointermove', onPointer);
+      window.removeEventListener('keydown', onKey);
       scene?.dispose();
     };
   }, []);
 
+  // Entering 3D: the section grows to its full scroll length and the page starts from its top.
+  // Leaving: it shrinks back to one screen and the page glides on to the collection below.
+  useEffect(() => {
+    if (modeRef.current === mode) return;
+    modeRef.current = mode;
+    requestAnimationFrame(() => {
+      controls.current?.refresh();
+      const el = section.current;
+      if (!el) return;
+      // the section has just shrunk under the visitor, so jump straight to what follows it
+      scrollPageTo(mode === 'story' ? el.offsetTop : el.offsetTop + el.offsetHeight, true);
+    });
+  }, [mode]);
+  const goToSite = () => scrollPageTo(section.current.offsetTop + section.current.offsetHeight);
+
   return (
-    <section ref={section} className="story" data-header="dark" aria-label="Taglio, in three dimensions">
+    <section ref={section} className={`story story--${mode}`} data-header="dark" aria-label="Taglio, in three dimensions">
       <div className="story__stage">
         <div ref={beamRef} className="story__beam" aria-hidden="true"><span /></div>
         <div ref={wordRef} className="story__word" aria-hidden="true">TAGLIO</div>
@@ -218,6 +254,11 @@ export default function BagStory({ product }) {
         {!failed && <canvas ref={canvasRef} className={`story__canvas ${ready ? 'is-ready' : ''}`} aria-hidden="true" />}
         <div ref={lineRef} className="story__line" aria-hidden="true" />
         <div className="story__frame" aria-hidden="true"><i /><i /><i /><i /></div>
+        {mode === 'story' && (
+          <button type="button" className="story__exit" onClick={() => setMode('hero')} aria-label="Exit 3D and continue to the site">
+            <span aria-hidden="true">✕</span> Exit 3D
+          </button>
+        )}
         <div className="story__count" aria-hidden="true">
           <span ref={countRef} className="story__count-n">01</span>
           <span className="story__count-track"><span ref={barRef} className="story__count-bar" /></span>
@@ -239,7 +280,17 @@ export default function BagStory({ product }) {
               <>
                 <div className="eyebrow eyebrow--light">The Collection · DF-01 to DF-06</div>
                 <h1 className="display d-xl" style={{ marginTop: 18 }}>The Diagonal<br />Folio</h1>
-                <p className="story__hint caps">Scroll to take the Taglio apart</p>
+                {mode === 'hero' ? (
+                  <div className="story__actions">
+                    <button type="button" className="story__go" onClick={() => setMode('story')} disabled={!ready && !failed} aria-label="Go 3D: explore the Taglio in three dimensions">
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.1" aria-hidden="true"><path d="M12 2.5 21 7.5v9L12 21.5 3 16.5v-9z" /><path d="M3 7.5 12 12.5l9-5M12 12.5v9" /></svg>
+                      <span>{ready || failed ? 'Go 3D' : 'Preparing 3D'}</span>
+                    </button>
+                    <button type="button" className="link story__skip" onClick={goToSite}>Discover the collection</button>
+                  </div>
+                ) : (
+                  <p className="story__hint caps">Scroll to take the Taglio apart</p>
+                )}
               </>
             )}
             {c.title && (
