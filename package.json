@@ -2,6 +2,7 @@
   "name": "diagonal-folio",
   "private": true,
   "version": "0.1.0",
+  "type": "module",
   "description": "The Diagonal Folio (D/F) — luxury leather goods store. React client + Node/Express API.",
   "workspaces": [
     "client",

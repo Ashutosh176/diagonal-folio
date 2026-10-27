@@ -3,7 +3,11 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const DATA_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'data');
+// On Vercel the deployment is read-only, so records go to the function's temporary /tmp: fine
+// for a preview, but they do not persist. Use a real database before taking live orders.
+const DATA_DIR = process.env.VERCEL
+  ? '/tmp/df-data'
+  : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'data');
 const queues = new Map();
 
 async function read(name) {
