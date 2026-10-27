@@ -8,3 +8,6 @@ server/data/*.json
 docs/reference/*.pdf
 # Temporary build folder for the hero film
 assets/.hero-build/
+
+.vercel
+.env*
