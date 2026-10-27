@@ -12,6 +12,12 @@ npm run dev          # API on :5174, site on http://localhost:5173
 
 Production: `npm run build && npm start` serves the built site and the API from one Node process on `PORT` (default 5174).
 
+## Deployment
+
+Live at **https://diagonal-folio.vercel.app** (Vercel project `diagonal-folio`, connected to GitHub `Ashutosh176/diagonal-folio`). Every push to `main` redeploys automatically.
+Vercel serves `client/dist` from its CDN, and `api/index.js` runs the Express app (`server/src/app.js`) as a serverless function. The routes are in `vercel.json`.
+**On Vercel, orders, sign-ups and appointment requests are written to temporary storage and do not persist.** Add a database (for example Vercel Postgres, Neon or MongoDB Atlas) in `server/src/store.js` before taking real orders.
+
 ## Structure
 
 ```
