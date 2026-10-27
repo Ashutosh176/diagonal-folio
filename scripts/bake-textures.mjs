@@ -106,7 +106,7 @@ save('cognac-normal.webp', normalFromHeight(pebbleHeight(512, 7000, 11), 1.0), 9
   sheen.addColorStop(0, 'rgba(255,190,130,.10)'); sheen.addColorStop(1, 'rgba(60,25,8,.12)');
   ctx.fillStyle = sheen; ctx.fillRect(0, 0, S, S);
   for (let i = 0; i < 160; i++) {
-    ctx.fillStyle = `rgba(${r() < 0.5 ? '90,40,15' : '220,140,80'},${0.006 + r() * 0.01})`;
+    ctx.fillStyle = `rgba(${r() < 0.5 ? '90,40,15' : '225,150,90'},${0.012 + r() * 0.018})`;
     ctx.beginPath(); ctx.arc(r() * S, r() * S, 80 + r() * 220, 0, Math.PI * 2); ctx.fill();
   }
   const img = ctx.getImageData(0, 0, S, S), px = img.data;
@@ -146,7 +146,7 @@ save('cognac-normal.webp', normalFromHeight(pebbleHeight(512, 7000, 11), 1.0), 9
 {
   const [c, ctx] = canvas(1024, 512);
   const g = ctx.createLinearGradient(0, 0, 1024, 512);
-  g.addColorStop(0, '#e6c98d'); g.addColorStop(0.45, BRASS); g.addColorStop(1, '#a8823f');
+  g.addColorStop(0, '#f4e2b4'); g.addColorStop(0.45, '#e2c68a'); g.addColorStop(1, '#c4a160'); // pale satin gold, as photographed
   ctx.fillStyle = g; ctx.fillRect(0, 0, 1024, 512);
   ctx.strokeStyle = 'rgba(80,55,20,.75)'; ctx.lineWidth = 10; ctx.strokeRect(66, 76, 892, 360);
   drawMark(ctx, 512, 262, 1024 * (22 / 47), 'rgba(70,48,18,.92)');

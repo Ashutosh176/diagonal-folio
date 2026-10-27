@@ -8,6 +8,7 @@
 // and it floats in drifting gold dust that parallaxes with the camera and the pointer.
 import * as THREE from 'three';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
+import { N8AOPass } from 'n8ao';
 
 import { W_BASE, W_TOP, H, D, BEVEL, TAN15, halfW, flapY, COGNAC, NOIR, BRASS, FLAP, TEXTURES } from './taglioSpec.js';
 
@@ -132,12 +133,13 @@ async function buildBag(T) {
   // Noir pebbled calf: a 1K pebble field; the tops of the pebbles are polished by use, so the
   // roughness map follows the height (high = smoother).
   const noirNormal = T.noirNormal, noirRough = T.noirRough;
-  const noir = new THREE.MeshPhysicalMaterial({ color: NOIR, roughness: 0.9, roughnessMap: noirRough, normalMap: noirNormal, normalScale: new THREE.Vector2(1.1, 1.1), clearcoat: 0.12, clearcoatRoughness: 0.55, sheen: 0.3, sheenColor: new THREE.Color('#2c2b2a'), sheenRoughness: 0.55 });
-  // Cognac box calf: a very fine grain under a glaze.
+  // Uncoated, so no clearcoat: the soft grey bloom across it is the leather's own sheen.
+  const noir = new THREE.MeshPhysicalMaterial({ color: NOIR, roughness: 1, roughnessMap: noirRough, normalMap: noirNormal, normalScale: new THREE.Vector2(1.5, 1.5), sheen: 0.55, sheenColor: new THREE.Color('#6b655d'), sheenRoughness: 0.45 });
+  // Cognac box calf: a very fine grain under a thin, satin glaze.
   const fine = T.cognacNormal;
-  const cognacSide = new THREE.MeshPhysicalMaterial({ color: COGNAC, roughness: 0.4, clearcoat: 0.45, clearcoatRoughness: 0.3, normalMap: fine, normalScale: new THREE.Vector2(0.22, 0.22), sheen: 0.25, sheenColor: new THREE.Color('#ffb27a'), sheenRoughness: 0.4 });
-  // Light-gold PVD brass, brushed: anisotropic highlights that streak along the grain.
-  const brass = new THREE.MeshPhysicalMaterial({ color: BRASS, metalness: 1, roughness: 0.22, anisotropy: 0.7, anisotropyRotation: 0, clearcoat: 0.3, clearcoatRoughness: 0.15 });
+  const cognacSide = new THREE.MeshPhysicalMaterial({ color: COGNAC, roughness: 0.5, clearcoat: 0.18, clearcoatRoughness: 0.42, normalMap: fine, normalScale: new THREE.Vector2(0.3, 0.3), sheen: 0.35, sheenColor: new THREE.Color('#ffc59a'), sheenRoughness: 0.45 });
+  // Light-gold PVD brass, satin-brushed: soft anisotropic highlights that streak along the grain.
+  const brass = new THREE.MeshPhysicalMaterial({ color: BRASS, metalness: 1, roughness: 0.3, anisotropy: 0.5, anisotropyRotation: 0 });
   const thread = new THREE.MeshStandardMaterial({ color: '#efe2c8', roughness: 0.7 });
   // One dark trim for piping, tabs, zip tapes, the top slot and the back welts.
   const darkTrim = new THREE.MeshStandardMaterial({ color: '#141210', roughness: 0.62 });
@@ -159,9 +161,11 @@ async function buildBag(T) {
   const bbox = FLAP.bbox;
   flapGeo.attributes.uv.array.forEach((v, i, a) => { a[i] = i % 2 === 0 ? (v - bbox.x0) / (bbox.x1 - bbox.x0) : (v - bbox.y0) / (bbox.y1 - bbox.y0); });
   const face = { map: T.flapColor, bump: T.flapBump, rough: T.flapRough };
-  const flapMat = new THREE.MeshPhysicalMaterial({ map: face.map, bumpMap: face.bump, bumpScale: 0.6, roughness: 0.5, roughnessMap: face.rough, clearcoat: 0.36, clearcoatRoughness: 0.38, sheen: 0.2, sheenColor: new THREE.Color('#ffb27a'), sheenRoughness: 0.45 });
-  // the painted edge shares the cognac leather's feature set, so it reuses the same shader program
-  const flapEdge = new THREE.MeshPhysicalMaterial({ color: '#7c3916', roughness: 0.38, clearcoat: 0.5, clearcoatRoughness: 0.3, normalMap: cognacSide.normalMap, normalScale: new THREE.Vector2(0.22, 0.22), sheen: 0.2, sheenColor: new THREE.Color('#ffb27a'), sheenRoughness: 0.4 });
+  // The glaze map runs about 0.35–0.6, so the flap reads satin, never plastic.
+  const flapMat = new THREE.MeshPhysicalMaterial({ map: face.map, bumpMap: face.bump, bumpScale: 0.6, roughness: 1, roughnessMap: face.rough, clearcoat: 0.15, clearcoatRoughness: 0.5, sheen: 0.35, sheenColor: new THREE.Color('#ffc59a'), sheenRoughness: 0.45 });
+  // Dark brown painted edges, glossier than the leather. Same feature set as the cognac, so it
+  // reuses the same shader program.
+  const flapEdge = new THREE.MeshPhysicalMaterial({ color: '#4a2a17', roughness: 0.34, clearcoat: 0.5, clearcoatRoughness: 0.3, normalMap: cognacSide.normalMap, normalScale: new THREE.Vector2(0.22, 0.22), sheen: 0.2, sheenColor: new THREE.Color('#ffb27a'), sheenRoughness: 0.4 });
   const flap = new THREE.Mesh(flapGeo, [flapMat, flapEdge]);
   flap.position.z = zF;
   put('flap', flap);
@@ -217,7 +221,7 @@ async function buildBag(T) {
   // cream topstitch around the tab
   const tabPath = new THREE.CatmullRomCurve3([[-tw + 0.055, tTop - 0.02], [-tw + 0.055, tBot + tw], [0, tBot + 0.055], [tw - 0.055, tBot + tw], [tw - 0.055, tTop - 0.02]].map(([x, y]) => new THREE.Vector3(x, y, 0)));
   clasp.add(stitchesAlong(tabPath.getSpacedPoints(40).map((p) => [p.x, p.y]), 0.046, thread));
-  const plateFace = new THREE.MeshPhysicalMaterial({ map: T.plate, metalness: 1, roughness: 0.2, clearcoat: 0.3, clearcoatRoughness: 0.15 });
+  const plateFace = new THREE.MeshPhysicalMaterial({ map: T.plate, metalness: 1, roughness: 0.36 });
   const plate = new THREE.Mesh(new THREE.BoxGeometry(0.47, 0.2, 0.045), [brass, brass, brass, brass, plateFace, brass]);
   plate.position.set(0, -0.34, 0.068);
   clasp.add(plate);
@@ -228,11 +232,14 @@ async function buildBag(T) {
   const zipY = 0.5;
   const tape = new THREE.Mesh(new THREE.BoxGeometry(3.42, 0.065, 0.006), darkTrim);
   tape.position.set(0, zipY, D / 2 + 0.006); put('zip', tape);
-  const TEETH = 112;
-  const teethMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(0.016, 0.03, 0.012), brass, TEETH);
+  // Rounded metal teeth from alternate sides, overlapping into one interlocked chain.
+  const TEETH = 216;
+  const toothGeo = new THREE.SphereGeometry(1, 10, 6);
+  toothGeo.scale(0.0095, 0.02, 0.0075);
+  const teethMesh = new THREE.InstancedMesh(toothGeo, brass, TEETH);
   const m4 = new THREE.Matrix4();
   for (let i = 0; i < TEETH; i++) {
-    m4.makeTranslation(-1.68 + (3.36 * i) / (TEETH - 1), zipY + (i % 2 ? 0.009 : -0.009), D / 2 + 0.014);
+    m4.makeTranslation(-1.68 + (3.36 * i) / (TEETH - 1), zipY + (i % 2 ? 0.006 : -0.006), D / 2 + 0.014);
     teethMesh.setMatrixAt(i, m4);
   }
   put('zip', teethMesh);
@@ -382,7 +389,7 @@ const LacquerShader = {
     color: { value: null },
     tDiffuse: { value: null },
     textureMatrix: { value: null },
-    strength: { value: 0.42 },
+    strength: { value: 0.26 },
   },
   vertexShader: `
     uniform mat4 textureMatrix;
@@ -414,21 +421,29 @@ const LacquerShader = {
     }`,
 };
 
-// A photographer's studio for reflections: a dark room with a large warm softbox overhead-left,
-// two tall strip lights for the rims, a low bounce card, and a faint warm floor. Rendered once
-// into an HDR environment map, it gives leather and brass long, clean highlights.
+// A photographer's studio for reflections: a dark room with a large softbox front-left, a scrim
+// overhead, two tall strip lights for the rims, a dim bounce card and a faint warm floor. Each
+// light glows brightest at its centre and falls off to its edges, as diffused studio lights do,
+// so highlights on leather and brass melt away instead of ending in hard CG rectangles.
+// Rendered once into an HDR environment map.
 function studioEnvironment() {
   const room = new THREE.Scene();
-  room.add(new THREE.Mesh(new THREE.BoxGeometry(30, 18, 30), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.018, 0.014, 0.011), side: THREE.BackSide })));
-  const panel = (w, h, rgb, pos, look) => {
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(...rgb), side: THREE.DoubleSide }));
+  room.add(new THREE.Mesh(new THREE.BoxGeometry(30, 18, 30), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.02, 0.018, 0.016), side: THREE.BackSide })));
+  const [c, ctx] = canvas(256, 256);
+  const g = ctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+  g.addColorStop(0, '#fff'); g.addColorStop(0.45, '#d8d8d8'); g.addColorStop(0.8, '#3a3a3a'); g.addColorStop(1, '#000');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, 256, 256);
+  const falloff = new THREE.CanvasTexture(c);
+  const box = (w, h, rgb, pos, look) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(...rgb), map: falloff, side: THREE.DoubleSide }));
     m.position.set(...pos); m.lookAt(...look); room.add(m);
   };
-  panel(9, 6, [2.9, 2.55, 2.15], [-5, 8, 5], [0, 0, 0]);  // key softbox, warm
-  panel(1.4, 9, [2.4, 2.3, 2.2], [-9, 2, -3], [0, 1, 0]); // left strip (rim)
-  panel(1.4, 9, [2.6, 2.4, 2.1], [9, 2, -2], [0, 1, 0]);  // right strip (rim)
-  panel(8, 2.5, [0.9, 0.7, 0.5], [3, -1, 9], [0, 1, 0]);  // low bounce card, front right
-  panel(20, 20, [0.12, 0.08, 0.05], [0, -6, 0], [0, 0, 0]); // warm floor
+  box(10, 9, [3.2, 3.0, 2.75], [-6, 6, 7], [0, 0, 0]);      // key softbox, front left, barely warm
+  box(12, 7, [1.5, 1.48, 1.44], [0, 10, 0], [0, 0, 0]);     // overhead scrim
+  box(2, 11, [2.6, 2.58, 2.55], [-8.5, 3, -4], [0, 1, 0]);  // left strip (rim)
+  box(2, 11, [2.9, 2.85, 2.75], [8.5, 3, -3], [0, 1, 0]);   // right strip (rim)
+  box(26, 10, [1.15, 1.12, 1.06], [0, 2, 12], [0, 0, 0]);  // wide front diffuser behind the camera: lights the brass
+  box(22, 22, [0.05, 0.047, 0.043], [0, -6, 0], [0, 0, 0]); // dark floor
   return room;
 }
 
@@ -443,7 +458,7 @@ export async function createTaglioScene(canvasEl) {
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   // Khronos PBR Neutral: made for product display, it keeps the cognac and the brass true to colour.
   renderer.toneMapping = THREE.NeutralToneMapping;
-  renderer.toneMappingExposure = 1.0;
+  renderer.toneMappingExposure = 1.15;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   // Shadows are only recomputed when the bag moves (see render), not on every frame.
@@ -453,22 +468,29 @@ export async function createTaglioScene(canvasEl) {
   const scene = new THREE.Scene();
   const pmrem = new THREE.PMREMGenerator(renderer);
   scene.environment = pmrem.fromScene(studioEnvironment(), 0.02).texture;
-  scene.environmentIntensity = 0.8;
+  scene.environmentIntensity = 1.0;
 
-  // Warm key from high left, a cool rim behind, a low warm fill: a dark studio.
-  const key = new THREE.DirectionalLight('#ffe6c4', 2.4);
+  // Most of the light comes from the studio itself (above). A near-white key from high left adds
+  // the gradient that models each face and casts the shadow; a neutral rim separates the bag from
+  // the dark. No coloured fills: they turned the noir olive.
+  const key = new THREE.DirectionalLight('#fff5ea', 1.9);
   key.position.set(-5, 8, 6); key.castShadow = true;
-  key.shadow.mapSize.set(1024, 1024); key.shadow.radius = 3;
-  key.shadow.bias = -0.0004; key.shadow.normalBias = 0.02;
+  key.shadow.mapSize.set(2048, 2048);
+  key.shadow.bias = -0.0003; key.shadow.normalBias = 0.02;
   Object.assign(key.shadow.camera, { left: -3.4, right: 3.4, top: 4.2, bottom: -2.6, near: 2, far: 22 });
   scene.add(key);
-  const rim = new THREE.DirectionalLight('#bcd2ff', 1.6); rim.position.set(6, 4, -6); scene.add(rim);
-  scene.add(new THREE.HemisphereLight('#3a2e24', '#0c0b0a', 0.6));
-  const fill = new THREE.DirectionalLight('#ffd7a8', 0.9); fill.position.set(5, 1.5, 7); scene.add(fill);
+  const rim = new THREE.DirectionalLight('#f3efe9', 1.1); rim.position.set(6, 4, -6); scene.add(rim);
+  scene.add(new THREE.HemisphereLight('#4a4642', '#0e0d0c', 0.3));
 
   const stage = new THREE.Group();
   await breathe();
   const { bag, parts, anchors, setExplode } = await buildBag(await texturesLoading);
+  // Brass takes all its light from the studio, so it gets a stronger share of it, as a photographer
+  // bounces extra light onto metalwork. (A material's own envMapIntensity only counts when it
+  // holds the map itself.)
+  bag.traverse((o) => {
+    for (const m of o.material ? [].concat(o.material) : []) if (m.metalness === 1) { m.envMap = scene.environment; m.envMapIntensity = 1.8; }
+  });
   // Start fast, upgrade quietly. The premium physical materials (glaze, sheen, brushed brass) are
   // several times slower to compile than standard ones, so the bag first appears with standard
   // stand-ins that share the same textures; upgrade() compiles the physical set in the background
@@ -480,6 +502,7 @@ export async function createTaglioScene(canvasEl) {
       lite.set(m, new THREE.MeshStandardMaterial({
         color: m.color, map: m.map, normalMap: m.normalMap, normalScale: m.normalScale, roughnessMap: m.roughnessMap,
         bumpMap: m.bumpMap, bumpScale: m.bumpScale, roughness: Math.max(0.2, m.roughness - (m.clearcoat || 0) * 0.25), metalness: m.metalness,
+        envMap: m.envMap, envMapIntensity: m.envMapIntensity,
       }));
     }
     return lite.get(m);
@@ -507,7 +530,8 @@ export async function createTaglioScene(canvasEl) {
     shader: LacquerShader, color: new THREE.Color('#b89a80'), clipBias: 0.003,
     textureWidth: Math.round(canvasEl.clientWidth * mirrorScale) || 512, textureHeight: Math.round(canvasEl.clientHeight * mirrorScale) || 512,
   });
-  mirror.material.transparent = true; mirror.material.depthWrite = false;
+  // It writes depth so the ambient occlusion can settle a soft contact shadow where the bag stands.
+  mirror.material.transparent = true;
   mirror.rotation.x = -Math.PI / 2; mirror.position.y = -2.042;
   scene.add(mirror);
   // The reflection pass is the costliest part of a frame, so it refreshes every other frame;
@@ -518,11 +542,34 @@ export async function createTaglioScene(canvasEl) {
   scene.add(stage);
 
   const camera = new THREE.PerspectiveCamera(28, 1, 0.5, 60);
-  const buffer = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
+  const buffer = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4, depthTexture: new THREE.DepthTexture(1, 1) });
+  // Ambient occlusion: the soft darkening where surfaces meet (under the flap, round the handle
+  // keepers, between strap and body, and where the bag stands), which no direct light gives and
+  // which does most to make a render read as a photograph. Worked at half resolution from the
+  // depth of the antialiased scene buffer above, then denoised.
+  const ao = new N8AOPass(scene, camera, 1, 1);
+  ao.beautyRenderTarget.dispose();
+  ao.beautyRenderTarget = buffer;
+  Object.assign(ao.configuration, {
+    autoRenderBeauty: false, gammaCorrection: false, transparencyAware: false, halfRes: true,
+    aoRadius: 0.5, distanceFalloff: 0.6, intensity: 2.2, aoSamples: narrow ? 8 : 16, denoiseSamples: 6, denoiseRadius: 10,
+  });
+  const lit = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType });
+  // The finish, as a camera would add it: tone mapping and a gentle lens vignette (the stage's CSS
+  // adds the film grain over everything).
   const post = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
-    uniforms: { tDiffuse: { value: buffer.texture } },
+    uniforms: { tDiffuse: { value: lit.texture } },
     vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
-    fragmentShader: 'uniform sampler2D tDiffuse; varying vec2 vUv; void main() { gl_FragColor = texture2D(tDiffuse, vUv); \n#include <tonemapping_fragment>\n#include <colorspace_fragment>\n}',
+    fragmentShader: `
+      uniform sampler2D tDiffuse; varying vec2 vUv;
+      void main() {
+        vec4 c = texture2D(tDiffuse, vUv);
+        vec2 d = vUv - 0.5;
+        c.rgb *= mix(1.0, 0.8, smoothstep(0.25, 0.85, dot(d, d) * 2.2));
+        gl_FragColor = c;
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }`,
     depthTest: false, depthWrite: false, toneMapped: true,
   }));
   post.frustumCulled = false;
@@ -534,11 +581,22 @@ export async function createTaglioScene(canvasEl) {
     const { clientWidth: w, clientHeight: h } = canvasEl;
     if (!w || !h) return;
     renderer.setSize(w, h, false);
-    buffer.setSize(Math.round(w * renderer.getPixelRatio()), Math.round(h * renderer.getPixelRatio()));
+    const bw = Math.round(w * renderer.getPixelRatio()), bh = Math.round(h * renderer.getPixelRatio());
+    ao.setSize(bw, bh); // also sizes the scene buffer
+    lit.setSize(bw, bh);
     camera.aspect = w / h; camera.updateProjectionMatrix();
     mirror.getRenderTarget().setSize(Math.round(w * mirrorScale), Math.round(h * mirrorScale));
     dust.userData.setScale(h * renderer.getPixelRatio() * 0.5); // same attenuation as PointsMaterial
     renderer.shadowMap.needsUpdate = true;
+  }
+
+  // Scene into the buffer, ambient occlusion into `lit`, then the finish to the screen.
+  function draw() {
+    renderer.setRenderTarget(buffer);
+    renderer.render(scene, camera);
+    ao.render(renderer, lit);
+    renderer.setRenderTarget(null);
+    renderer.render(postScene, postCamera);
   }
 
   // pose: { rotY, rotX, dist, ty, x, explode } — the stage turns, the camera dollies, the bag
@@ -559,10 +617,7 @@ export async function createTaglioScene(canvasEl) {
     target.set(0, pose.ty, 0);
     camera.position.set(pointer.x * 0.9, pose.ty + pose.dist * 0.16 - pointer.y * 0.5, pose.dist);
     camera.lookAt(target);
-    renderer.setRenderTarget(buffer);
-    renderer.render(scene, camera);
-    renderer.setRenderTarget(null);
-    renderer.render(postScene, postCamera);
+    draw();
     const { clientWidth: w, clientHeight: h } = canvasEl;
     const toScreen = (vec) => ({ x: (vec.x * 0.5 + 0.5) * w, y: (-vec.y * 0.5 + 0.5) * h });
     const out = anchors.map(([name, local]) => toScreen(v.copy(local).applyMatrix4(parts[name].matrixWorld).project(camera)));
@@ -578,6 +633,7 @@ export async function createTaglioScene(canvasEl) {
     pmrem.dispose();
     mirror.dispose();
     buffer.dispose();
+    lit.dispose();
     post.geometry.dispose(); post.material.dispose();
     renderer.dispose();
   }
@@ -593,6 +649,7 @@ export async function createTaglioScene(canvasEl) {
     await renderer.compileAsync(scene, camera);
     renderer.setRenderTarget(null);
     await renderer.compileAsync(postScene, postCamera);
+    draw(); // the occlusion passes compile here, while the loader still shows
   }
 
   // Compile the physical materials as if they were in the scene (same lights, environment and

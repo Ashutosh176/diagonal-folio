@@ -7,7 +7,8 @@ export const halfW = (y) => (W_BASE - (W_BASE - W_TOP) * (y / H)) / 2;
 export const FLAP_MID = 1.33;
 export const flapY = (x) => FLAP_MID + x * TAN15;
 
-export const COGNAC = '#9c4a1c', NOIR = '#1d1c1b', BRASS = '#c9a45e';
+// Matched to the studio photography: a warm tan cognac, a charcoal (not jet) noir, satin light gold.
+export const COGNAC = '#a8582a', NOIR = '#2e2c2a', BRASS = '#c9a45e';
 
 // The flap outline (top-left, top-right, bottom-right, bottom-left) and the box its artwork covers.
 const inset = 0.005, yTop = H - 0.06;
